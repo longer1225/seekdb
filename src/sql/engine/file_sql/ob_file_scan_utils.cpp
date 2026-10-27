@@ -217,11 +217,22 @@ int ObTextFileReader::open(const ObString &path, const ObFileScanOptions &option
     ret = OB_INIT_TWICE;
     LOG_WARN("reader already opened", K(ret));
   } else {
-    // 路径校验由调用方（resolver）完成
-    fp_ = fopen(path.ptr(), "rb");
-    if (NULL == fp_) {
-      ret = OB_FILE_NOT_EXIST;
-      LOG_WARN("open file failed", K(ret), K(path));
+    // 路径校验由调用方（resolver）完成。
+    // 注意：path 来自 parse node，ptr() 不保证 NUL 结尾，必须自己补。
+    char path_buf[4096];
+    if (path.length() <= 0 || path.length() >= static_cast<int64_t>(sizeof(path_buf))) {
+      ret = OB_INVALID_ARGUMENT;
+      LOG_WARN("invalid file path length", K(ret), K(path));
+    } else {
+      MEMCPY(path_buf, path.ptr(), path.length());
+      path_buf[path.length()] = '\0';
+      fp_ = fopen(path_buf, "rb");
+      if (NULL == fp_) {
+        ret = OB_FILE_NOT_EXIST;
+        LOG_WARN("open file failed", K(ret), K(path));
+      }
+    }
+    if (OB_FAIL(ret)) {
     } else {
       opt_ = options;
       buf_cap_ = FILE_READ_BUFFER_SIZE;
@@ -293,6 +304,7 @@ int ObTextFileReader::next_row(ObIArray<ObString> &fields)
   int64_t *lens = NULL;
   int64_t field_cnt = 0;
   int64_t field_cnt_cap = 0;
+  int64_t field_start = 0;   // 当前字段在 row_buf 中的起点
   bool row_started = false;
   bool finished = false;
 
@@ -347,9 +359,10 @@ int ObTextFileReader::next_row(ObIArray<ObString> &fields)
           offs = n_offs;
           lens = n_lens;
         }
-        offs[field_cnt] = row_len;
-        lens[field_cnt] = 0;
+        offs[field_cnt] = field_start;
+        lens[field_cnt] = row_len - field_start;
         ++field_cnt;
+        field_start = row_len;
         state = FIELD_BEGIN;
       } else if ('\n' == c) {
         ++line_no_;
@@ -418,9 +431,10 @@ int ObTextFileReader::next_row(ObIArray<ObString> &fields)
           offs = n_offs;
           lens = n_lens;
         }
-        offs[field_cnt] = row_len;
-        lens[field_cnt] = 0;
+        offs[field_cnt] = field_start;
+        lens[field_cnt] = row_len - field_start;
         ++field_cnt;
+        field_start = row_len;
         state = FIELD_BEGIN;
       } else if ('\n' == c) {
         ++line_no_;
@@ -461,15 +475,8 @@ int ObTextFileReader::next_row(ObIArray<ObString> &fields)
       }
     }
     if (OB_SUCC(ret)) {
-      // 最后一列的偏移需要按实际长度计算
-      int64_t last_start = 0;
-      int64_t last_len = 0;
-      if (field_cnt > 0) {
-        last_start = offs[field_cnt - 1] + lens[field_cnt - 1];
-      }
-      last_len = row_len - last_start;
-      offs[field_cnt] = last_start;
-      lens[field_cnt] = last_len;
+      offs[field_cnt] = field_start;
+      lens[field_cnt] = row_len - field_start;
       ++field_cnt;
     }
   }

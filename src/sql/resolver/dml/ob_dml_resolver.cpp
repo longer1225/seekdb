@@ -3836,7 +3836,43 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &parse_tree, TableIte
     }
   }
 
-  // 按推断结果建列
+  // root 列：all_cols_[0] 必须是 nested 列，否则列展开（select *）失败。
+  // 照 UNNEST 表函数的做法：NESTED_COL_TYPE / parent_id=-1 / id=0。
+  if (OB_SUCC(ret)) {
+    ObDmlJtColDef *root_col_def = static_cast<ObDmlJtColDef *>(allocator_->alloc(sizeof(ObDmlJtColDef)));
+    if (OB_ISNULL(root_col_def)) {
+      ret = OB_ALLOCATE_MEMORY_FAILED;
+    } else {
+      root_col_def = new (root_col_def) ObDmlJtColDef();
+      root_col_def->table_id_ = 0;
+      root_col_def->col_base_info_.col_type_ = NESTED_COL_TYPE;
+      root_col_def->col_base_info_.parent_id_ = -1;
+      root_col_def->col_base_info_.id_ = 0;
+      if (OB_FAIL(table_def->all_cols_.push_back(&root_col_def->col_base_info_))) {
+        LOG_WARN("push root column failed", K(ret));
+      }
+    }
+  }
+
+  // file_sql: register columns —— TableItem 必须先建好，
+  // 因为列注册用的 generate_json_table_output_column_item() 依赖它。
+  if (OB_SUCC(ret) && OB_ISNULL(tbl_item)) {
+    if (OB_ISNULL(item = stmt->create_table_item(*allocator_))) {
+      ret = OB_ALLOCATE_MEMORY_FAILED;
+    } else {
+      item->table_name_ = ObString::make_string("read_csv");
+      item->alias_name_ = item->table_name_;
+      item->table_id_ = generate_table_id();
+      item->type_ = TableItem::JSON_TABLE;
+      item->json_table_def_ = table_def;
+      tbl_item = item;
+      if (OB_FAIL(stmt->add_table_item(session_info_, item))) {
+        LOG_WARN("add table item failed", K(ret));
+      }
+    }
+  }
+
+  // 按推断结果建列：parent 指向 root，id 从 1 开始
   for (int64_t i = 0; OB_SUCC(ret) && i < file_columns.count(); ++i) {
     const ObFileColumn &col = file_columns.at(i);
     ObDmlJtColDef *col_def = static_cast<ObDmlJtColDef *>(allocator_->alloc(sizeof(ObDmlJtColDef)));
@@ -3844,20 +3880,38 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &parse_tree, TableIte
       ret = OB_ALLOCATE_MEMORY_FAILED;
     } else {
       col_def = new (col_def) ObDmlJtColDef();
-      col_def->col_base_info_.col_name_ = col.name_;
-      col_def->col_base_info_.id_ = static_cast<int32_t>(i);
-      col_def->col_base_info_.col_type_ = 0;
+      col_def->table_id_ = 0;
+      col_def->col_base_info_.col_type_ = COL_TYPE_UNNEST;
+      col_def->col_base_info_.parent_id_ = 0;
+      col_def->col_base_info_.id_ = static_cast<int32_t>(i + 1);
+      col_def->col_base_info_.output_column_idx_ = i + 1;
       ObDataType dt;
       dt.set_obj_type(col.type_);
       dt.set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
       dt.set_length(ObVarcharType == col.type_ ? static_cast<ObLength>(col.type_len_) : 32);
       col_def->col_base_info_.data_type_ = dt;
-      if (OB_FAIL(table_def->all_cols_.push_back(&col_def->col_base_info_))) {
+      ColumnItem *col_item = NULL;
+      // file_sql: col debug —— 把列名拷进本查询 allocator，排除生命周期问题
+      ObString safe_name;
+      int tmp_ret = ob_write_string(*allocator_, col.name_, safe_name);
+      if (OB_FAIL(tmp_ret)) {
+        LOG_WARN("copy column name failed", K(tmp_ret), K(col.name_));
+      } else {
+        col_def->col_base_info_.col_name_ = safe_name;
+      }
+      tmp_ret = generate_json_table_output_column_item(
+          item, dt, safe_name, static_cast<int64_t>(i + 1), col_item);
+      LOG_ERROR("file_sql: col debug", K(tmp_ret), "idx", i, K(safe_name),
+               "col_type", static_cast<int>(col.type_),
+               "registered_total", stmt->get_column_size());
+      if (OB_FAIL(tmp_ret)) {
+        LOG_WARN("register output column failed", K(tmp_ret), K(safe_name));
+      } else if (OB_FAIL(table_def->all_cols_.push_back(&col_def->col_base_info_))) {
         LOG_WARN("push column failed", K(ret));
       }
     }
   }
-  if (OB_SUCC(ret)) {
+  if (OB_SUCC(ret) && OB_ISNULL(tbl_item)) {
     if (OB_ISNULL(item = stmt->create_table_item(*allocator_))) {
       ret = OB_ALLOCATE_MEMORY_FAILED;
     } else {
@@ -3871,7 +3925,7 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &parse_tree, TableIte
       }
     }
   }
-  LOG_INFO("resolve file table done", K(ret), K(file_path), "col_cnt", table_def ? table_def->all_cols_.count() : -1);
+  LOG_INFO("resolve file table done", K(ret), K(file_path), "col_cnt", table_def ? table_def->all_cols_.count() : -1, "file_cols", file_columns.count(), "final_col_stats", stmt->get_column_size(), "tbl_id", tbl_item ? tbl_item->table_id_ : 0, "dst_cols", table_def ? table_def->all_cols_.count() : -1);
   return ret;
 }
 
