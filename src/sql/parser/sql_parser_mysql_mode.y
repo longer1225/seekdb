@@ -259,6 +259,7 @@ END_P SET_VAR DELIMITER
 //-----------------------------reserved keyword end-------------------------------------------------
 %token <non_reserved_keyword>
 //-----------------------------non_reserved keyword begin-------------------------------------------
+        READ_CSV
         ACCESS ACCOUNT ACTION ACTIVE ADDDATE AFTER AGAINST AGGREGATE AI ALGORITHM ALWAYS ALLOW ANALYSE ANY
         APPROX_COUNT_DISTINCT APPROX_COUNT_DISTINCT_SYNOPSIS APPROX_COUNT_DISTINCT_SYNOPSIS_MERGE
         ARRAY ASCII ASIS AT ATTRIBUTE AUTHORS AUTO AUTOEXTEND_SIZE AUTO_INCREMENT AUTO_INCREMENT_CACHE_SIZE
@@ -498,6 +499,7 @@ END_P SET_VAR DELIMITER
 %type <node> skip_index_type opt_skip_index_type_list
 %type <node> vec_index_params vec_index_param vec_index_param_value opt_with_vector_index_parameters
 %type <node> json_table_expr unnest_expr mock_jt_on_error_on_empty jt_column_list json_table_column_def
+%type <node> file_table_expr
 %type <node> json_table_ordinality_column_def json_table_exists_column_def json_table_value_column_def json_table_nested_column_def
 %type <node> opt_value_on_empty_or_error_or_mismatch opt_on_mismatch
 %type <node> table_values_clause table_values_clause_with_order_by_and_limit values_row_list row_value
@@ -10835,6 +10837,10 @@ tbl_name
 {
   $$ = $1;
 }
+| file_table_expr
+{
+  $$ = $1;
+}
 | '(' table_references ')'
 {
   $$ = $2;
@@ -16624,6 +16630,33 @@ DAY
 *  JSON TABLE
 *============================================================*/
 
+/*===========================================================
+*
+*  FILE TABLE：read_csv('path') [alias]
+*  文件列在 resolve 阶段扫描文件推断，故列定义是动态的。
+*============================================================*/
+
+file_table_expr:
+READ_CSV '(' STRING_VALUE ')' relation_name
+{
+  ParseNode *func_name = NULL;
+  make_name_node(func_name, result->malloc_pool_, "read_csv");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_TABLE_EXPRESSION, 3, func_name, $3, $5);
+}
+| READ_CSV '(' STRING_VALUE ')' AS relation_name
+{
+  ParseNode *func_name = NULL;
+  make_name_node(func_name, result->malloc_pool_, "read_csv");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_TABLE_EXPRESSION, 3, func_name, $3, $6);
+}
+| READ_CSV '(' STRING_VALUE ')'
+{
+  ParseNode *func_name = NULL;
+  make_name_node(func_name, result->malloc_pool_, "read_csv");
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_TABLE_EXPRESSION, 3, func_name, $3, NULL);
+}
+;
+
 json_table_expr:
 JSON_TABLE '(' simple_expr ',' literal mock_jt_on_error_on_empty COLUMNS '(' jt_column_list ')' ')' relation_name
 {
@@ -17491,7 +17524,8 @@ unreserved_keyword_normal { $$=$1;}
 ;
 
 unreserved_keyword_normal:
-ACCOUNT
+READ_CSV
+|	ACCOUNT
 |       ACTION
 |       ACTIVE
 |       ADDDATE

@@ -492,6 +492,7 @@ SQL_PRIVATE_HEADERS = [
     "engine/basic/ob_temp_table_transformation_op.h",
     "engine/basic/ob_topk_op.h",
     "engine/basic/ob_values_op.h",
+    "engine/file_sql/ob_file_scan_utils.h",
     "engine/basic/ob_values_table_access_op.h",
     "engine/cmd/ob_alter_system_executor.h",
     "engine/cmd/ob_analyze_executor.h",

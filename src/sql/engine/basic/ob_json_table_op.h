@@ -163,6 +163,10 @@ struct JtScanCtx {
     return spec_ptr_->table_type_ == OB_UNNEST_TABLE_TYPE;
   }
 
+  bool is_file_csv_table_func() {
+    return spec_ptr_->table_type_ == OB_FILE_CSV_TABLE_TYPE;
+  }
+
   ObJsonTableSpec* spec_ptr_;
   ObEvalCtx* eval_ctx_;
   ObExecContext* exec_ctx_;
@@ -246,6 +250,11 @@ private:
   ObJsonNull j_null_;
   ObJsonArray j_arr_;
   ObJsonObject j_obj_;
+
+private:
+  int file_csv_open();
+  int file_csv_next_row();
+  bool file_opened_ = false;
 };
 
 class MulModeTableFunc {

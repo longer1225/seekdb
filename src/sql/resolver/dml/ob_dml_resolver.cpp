@@ -2705,6 +2705,10 @@ int ObDMLResolver::resolve_table(const ParseNode &parse_tree,
         OZ (resolve_json_table_item(*table_node, table_item));
         break;
       }
+      case T_FILE_TABLE_EXPRESSION: {
+        OZ (resolve_file_table_item(*table_node, table_item));
+        break;
+      }
       case T_UNNEST_EXPRESSION: {
         if (OB_ISNULL(session_info_)) {
           ret = OB_INVALID_ARGUMENT;
@@ -3763,6 +3767,85 @@ int ObDMLResolver::resolve_hybrid_search_item(const ParseNode &parse_tree, Table
   if (OB_SUCC(ret) && OB_NOT_NULL(params_.query_ctx_)) {
     params_.query_ctx_->has_hybrid_search_ = true;
   }
+  return ret;
+}
+
+// 文件表函数（第 1 步：空壳）——不读文件，只建 1 个固定列
+int ObDMLResolver::resolve_file_table_item(const ParseNode &parse_tree, TableItem *&tbl_item)
+{
+  int ret = OB_SUCCESS;
+  ObDMLStmt *stmt = get_stmt();
+  TableItem *item = NULL;
+  ObJsonTableDef *table_def = NULL;
+
+  if (T_FILE_TABLE_EXPRESSION != parse_tree.type_ || 3 != parse_tree.num_child_) {
+    ret = OB_ERR_UNEXPECTED;
+  } else if (OB_ISNULL(stmt) || OB_ISNULL(allocator_)) {
+    ret = OB_NOT_INIT;
+  }
+  if (OB_SUCC(ret)) {
+    char *buf = static_cast<char *>(allocator_->alloc(sizeof(ObJsonTableDef)));
+    if (OB_ISNULL(buf)) {
+      ret = OB_ALLOCATE_MEMORY_FAILED;
+    } else {
+      table_def = new (buf) ObJsonTableDef();
+      table_def->table_type_ = MulModeTableType::OB_FILE_CSV_TABLE_TYPE;
+    }
+  }
+  // file_sql skeleton path expr：路径常量表达式，供 optimizer/codegen 使用
+  if (OB_SUCC(ret)) {
+    ObConstRawExpr *path_expr = NULL;
+    ObObj path_val;
+    path_val.set_varchar(ObString::make_string("/tmp/file_sql_placeholder.csv"));
+    path_val.set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
+    if (OB_FAIL(params_.expr_factory_->create_raw_expr(T_VARCHAR, path_expr))) {
+      LOG_WARN("create path expr failed", K(ret));
+    } else if (OB_ISNULL(path_expr)) {
+      ret = OB_ERR_UNEXPECTED;
+    } else {
+      path_expr->set_value(path_val);
+      if (OB_FAIL(path_expr->deduce_type(session_info_))) {
+        LOG_WARN("deduce path expr failed", K(ret));
+      } else if (OB_FAIL(table_def->doc_exprs_.push_back(path_expr))) {
+        LOG_WARN("push path expr failed", K(ret));
+      }
+    }
+  }
+
+  // 固定 1 列 c1 BIGINT
+  if (OB_SUCC(ret)) {
+    ObDmlJtColDef *col_def = static_cast<ObDmlJtColDef *>(allocator_->alloc(sizeof(ObDmlJtColDef)));
+    if (OB_ISNULL(col_def)) {
+      ret = OB_ALLOCATE_MEMORY_FAILED;
+    } else {
+      col_def = new (col_def) ObDmlJtColDef();
+      col_def->col_base_info_.col_name_ = ObString::make_string("c1");
+      col_def->col_base_info_.id_ = 0;
+      col_def->col_base_info_.col_type_ = 0;
+      ObDataType dt;
+      dt.set_obj_type(ObIntType);
+      dt.set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
+      dt.set_length(8);
+      col_def->col_base_info_.data_type_ = dt;
+      if (OB_FAIL(table_def->all_cols_.push_back(&col_def->col_base_info_))) {
+      }
+    }
+  }
+  if (OB_SUCC(ret)) {
+    if (OB_ISNULL(item = stmt->create_table_item(*allocator_))) {
+      ret = OB_ALLOCATE_MEMORY_FAILED;
+    } else {
+      item->table_name_ = ObString::make_string("read_csv");
+      item->alias_name_ = item->table_name_;
+      item->table_id_ = generate_table_id();
+      item->type_ = TableItem::JSON_TABLE;
+      item->json_table_def_ = table_def;
+      tbl_item = item;
+      if (OB_FAIL(stmt->add_table_item(session_info_, item))) {
+      }
+    }
+  }
+  LOG_INFO("resolve file table (skeleton)", K(ret));
   return ret;
 }
 

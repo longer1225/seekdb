@@ -669,6 +669,7 @@ static const NonReservedKeyword Mysql_none_reserved_keywords[] =
   {"replace", REPLACE},
   {"replication", REPLICATION},
   {"require", REQUIRE},
+  {"read_csv", READ_CSV},
   {"reset", RESET},
   {"resignal", RESIGNAL},
   {"respect", RESPECT},

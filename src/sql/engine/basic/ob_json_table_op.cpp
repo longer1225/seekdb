@@ -584,7 +584,10 @@ int ObJsonTableOp::generate_column_trees(JtColTreeNode*& root)
 int ObJsonTableOp::inner_open()
 {
   INIT_SUCC(ret);
-  if (OB_FAIL(init())) {
+  if (MY_SPEC.table_type_ == OB_FILE_CSV_TABLE_TYPE) {
+    if (OB_FAIL(file_csv_open())) {
+    }
+  } else if (OB_FAIL(init())) {
   } else if (MY_SPEC.value_exprs_.empty()) {
     ret = OB_ERR_UNEXPECTED;
   } else if (OB_FAIL(root_->open(&jt_ctx_))) {
@@ -1402,7 +1405,10 @@ int ObJsonTableOp::inner_get_next_row()
 {
   INIT_SUCC(ret);
   bool is_root_null = false;
-  if (!(jt_ctx_.is_json_table_func()
+  if (MY_SPEC.table_type_ == OB_FILE_CSV_TABLE_TYPE) {
+    if (OB_FAIL(file_csv_next_row())) {
+    }
+  } else if (!(jt_ctx_.is_json_table_func()
         || jt_ctx_.is_unnest_table_func())) {
     ret = OB_ERR_UNEXPECTED;
   } else if (is_evaled_) {
@@ -2121,6 +2127,22 @@ int JsonTableFunc::container_at(void* in, void *&out, int32_t pos) {
   }
 
   return ret;
+}
+
+
+// ---- 文件表函数（第 1 步：空壳，只验证链路）----
+int ObJsonTableOp::file_csv_open()
+{
+  int ret = OB_SUCCESS;
+  file_opened_ = true;
+  LOG_INFO("file csv table opened (skeleton)", K(ret), "col_cnt", MY_SPEC.output_.count());
+  return ret;
+}
+
+int ObJsonTableOp::file_csv_next_row()
+{
+  LOG_INFO("file csv table next_row -> ITER_END (skeleton)");
+  return OB_ITER_END;
 }
 
 } // end namespace sql
