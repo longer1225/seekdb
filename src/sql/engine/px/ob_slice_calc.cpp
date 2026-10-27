@@ -1055,15 +1055,19 @@ bool ObSlaveMapPkeyRangeIdxCalc::Compare::operator()(
              || OB_ISNULL(access_ctx_)) {
     ret = OB_INVALID_ARGUMENT;
   } else {
+    /* SORT_CMP_PTR_HOIST */
+    const ObSortFieldCollation *sort_collations = sort_collations_->get_data();
+    const ObSortCmpFunc *sort_cmp_funs = sort_cmp_funs_->get_data();
     int cmp = 0;
     const int64_t cnt = sort_cmp_funs_->count();
     for (int64_t i = 0; OB_SUCC(ret) && 0 == cmp && i < cnt; i++) {
+      const ObSortFieldCollation &sort_collation = sort_collations[i];
       if (OB_FAIL(
-              sort_cmp_funs_->at(i).cmp_func_(l.at(i), r.at(i), cmp, access_ctx_))) {
+              sort_cmp_funs[i].cmp_func_(l.at(i), r.at(i), cmp, access_ctx_))) {
       } else if (cmp < 0) {
-        less = sort_collations_->at(i).is_ascending_;
+        less = sort_collation.is_ascending_;
       } else if (cmp > 0) {
-        less = !sort_collations_->at(i).is_ascending_;
+        less = !sort_collation.is_ascending_;
       }
     }
   }

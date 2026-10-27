@@ -416,12 +416,17 @@ bool ObSortOpImpl::Compare::operator()(
   } else {
     const ObDatum *lcells = l->cells();
     const ObDatum *rcells = r->cells();
+    /* SORT_CMP_PTR_HOIST: at() 内含 OB_ASSERT（release 下同样生效，带日志与
+     * lbt()），无法内联，perf 中占 2.5%。数组在排序期间不再变动，指针稳定，
+     * 直接下标访问与 at() 等价。 */
+    const ObSortFieldCollation *sort_collations = sort_collations_->get_data();
+    const ObSortCmpFunc *sort_cmp_funs = sort_cmp_funs_->get_data();
     int cmp = 0;
     for (int64_t i = cmp_start_; 0 == cmp && i < cmp_end_ && OB_SUCC(ret); i++) {
-      const ObSortFieldCollation& sort_collation = sort_collations_->at(i);
+      const ObSortFieldCollation& sort_collation = sort_collations[i];
       const int64_t idx = sort_collation.field_idx_;
       if (OB_FAIL(
-              sort_cmp_funs_->at(i).cmp_func_(lcells[idx], rcells[idx], cmp, access_ctx_))) {
+              sort_cmp_funs[i].cmp_func_(lcells[idx], rcells[idx], cmp, access_ctx_))) {
       } else if (cmp < 0) {
         less = sort_collation.is_ascending_;
       } else if (cmp > 0) {
@@ -447,18 +452,22 @@ bool ObSortOpImpl::Compare::operator()(
   } else {
     const ObDatum *rcells = r->cells();
     ObDatum *other_datum = nullptr;
+    /* SORT_CMP_PTR_HOIST */
+    const ObSortFieldCollation *sort_collations = sort_collations_->get_data();
+    const ObSortCmpFunc *sort_cmp_funs = sort_cmp_funs_->get_data();
     int cmp = 0;
     const int64_t cnt = sort_cmp_funs_->count();
     for (int64_t i = 0; 0 == cmp && i < cnt && OB_SUCC(ret); i++) {
-      const int64_t idx = sort_collations_->at(i).field_idx_;
+      const ObSortFieldCollation &sort_collation = sort_collations[i];
+      const int64_t idx = sort_collation.field_idx_;
       if (OB_FAIL(l->at(idx)->eval(eval_ctx, other_datum))) {
       } else if (OB_FAIL(
-                     sort_cmp_funs_->at(i).cmp_func_(*other_datum, rcells[idx], cmp, access_ctx_))) {
+                     sort_cmp_funs[i].cmp_func_(*other_datum, rcells[idx], cmp, access_ctx_))) {
       } else {
         if (cmp < 0) {
-          less = sort_collations_->at(i).is_ascending_;
+          less = sort_collation.is_ascending_;
         } else if (cmp > 0) {
-          less = !sort_collations_->at(i).is_ascending_;
+          less = !sort_collation.is_ascending_;
         }
       }
     }
@@ -480,14 +489,18 @@ int ObSortOpImpl::Compare::with_ties_cmp(const common::ObIArray<ObExpr*> *l,
   } else {
     const ObDatum *rcells = r->cells();
     ObDatum *other_datum = nullptr;
+    /* SORT_CMP_PTR_HOIST */
+    const ObSortFieldCollation *sort_collations = sort_collations_->get_data();
+    const ObSortCmpFunc *sort_cmp_funs = sort_cmp_funs_->get_data();
     const int64_t cnt = sort_cmp_funs_->count();
     for (int64_t i = 0; 0 == cmp && i < cnt && OB_SUCC(ret); i++) {
-      const int64_t idx = sort_collations_->at(i).field_idx_;
+      const ObSortFieldCollation &sort_collation = sort_collations[i];
+      const int64_t idx = sort_collation.field_idx_;
       if (OB_FAIL(l->at(idx)->eval(eval_ctx, other_datum))) {
       } else if (OB_FAIL(
-                     sort_cmp_funs_->at(i).cmp_func_(*other_datum, rcells[idx], cmp, access_ctx_))) {
+                     sort_cmp_funs[i].cmp_func_(*other_datum, rcells[idx], cmp, access_ctx_))) {
       } else {
-        cmp = sort_collations_->at(i).is_ascending_ ? -cmp : cmp;
+        cmp = sort_collation.is_ascending_ ? -cmp : cmp;
       }
     }
   }
@@ -506,13 +519,17 @@ int ObSortOpImpl::Compare::with_ties_cmp(const ObChunkDatumStore::StoredRow *l,
   } else {
     const ObDatum *rcells = r->cells();
     const ObDatum *lcells = l->cells();
+    /* SORT_CMP_PTR_HOIST */
+    const ObSortFieldCollation *sort_collations = sort_collations_->get_data();
+    const ObSortCmpFunc *sort_cmp_funs = sort_cmp_funs_->get_data();
     const int64_t cnt = sort_cmp_funs_->count();
     for (int64_t i = 0; 0 == cmp && i < cnt && OB_SUCC(ret); i++) {
-      const int64_t idx = sort_collations_->at(i).field_idx_;
+      const ObSortFieldCollation &sort_collation = sort_collations[i];
+      const int64_t idx = sort_collation.field_idx_;
       if (OB_FAIL(
-              sort_cmp_funs_->at(i).cmp_func_(lcells[idx], rcells[idx], cmp, access_ctx_))) {
+              sort_cmp_funs[i].cmp_func_(lcells[idx], rcells[idx], cmp, access_ctx_))) {
       } else {
-        cmp = sort_collations_->at(i).is_ascending_ ? -cmp : cmp;
+        cmp = sort_collation.is_ascending_ ? -cmp : cmp;
       }
     }
   }
