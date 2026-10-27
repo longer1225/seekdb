@@ -102,6 +102,7 @@
 #include "sql/engine/expand/ob_expand_vec_op.h"
 #include "sql/optimizer/ob_log_values_table_access.h"
 #include "sql/engine/basic/ob_values_table_access_op.h"
+#include "sql/engine/file_sql/ob_file_scan_op.h"
 
 namespace oceanbase
 {
@@ -5532,6 +5533,33 @@ int ObStaticEngineCG::generate_spec(ObLogFunctionTable &op, ObFunctionTableSpec 
   return ret;
 }
 
+// 文件表算子的 spec 生成：只要路径表达式，列类型由 output expr 携带
+int ObStaticEngineCG::generate_spec(ObLogFileScan &op, ObFileScanSpec &spec,
+                                    const bool in_root_job)
+{
+  UNUSED(in_root_job);
+  int ret = OB_SUCCESS;
+  ObExpr *path_expr = NULL;
+  if (OB_ISNULL(op.get_stmt())) {
+    ret = OB_ERR_UNEXPECTED;
+    LOG_WARN("stmt is null", K(ret));
+  } else if (OB_ISNULL(op.get_path_expr())) {
+    ret = OB_ERR_UNEXPECTED;
+    LOG_WARN("file scan path expr is null", K(ret));
+  } else if (OB_FAIL(generate_rt_expr(*op.get_path_expr(), path_expr))) {
+    LOG_WARN("generate path rt expr failed", K(ret));
+  } else if (OB_ISNULL(path_expr)) {
+    ret = OB_ERR_UNEXPECTED;
+  } else {
+    spec.path_expr_ = path_expr;
+    spec.format_ = static_cast<int32_t>(0);   // CSV
+    spec.has_header_ = true;
+    spec.file_column_cnt_ = static_cast<int32_t>(op.get_origin_cols_def().count());
+    LOG_WARN("FILE_SCAN spec generated", "cols", spec.file_column_cnt_);
+  }
+  return ret;
+}
+
 int ObStaticEngineCG::generate_spec(ObLogJsonTable &op, ObJsonTableSpec &spec,
     const bool in_root_job)
 {
@@ -6121,6 +6149,10 @@ int ObStaticEngineCG::get_phy_op_type(ObLogicalOperator &log_op,
     }
     case log_op_def::LOG_JSON_TABLE: {
       type = PHY_JSON_TABLE;
+      break;
+    }
+    case log_op_def::LOG_FILE_SCAN: {
+      type = PHY_FILE_SCAN;
       break;
     }
     case log_op_def::LOG_MONITORING_DUMP: {

@@ -252,6 +252,7 @@ SQL_UNITY_GROUPS = [
             "src/sql/engine/basic/ob_topk_op.cpp",
             "src/sql/engine/basic/ob_values_op.cpp",
             "src/sql/engine/file_sql/ob_file_scan_utils.cpp",
+            "src/sql/engine/file_sql/ob_file_scan_op.cpp",
             "src/sql/engine/basic/ob_stat_collector_op.cpp",
             "src/sql/engine/basic/chunk_store/ob_chunk_block.cpp",
             "src/sql/engine/basic/chunk_store/ob_compact_store.cpp",

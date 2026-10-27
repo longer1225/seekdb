@@ -168,5 +168,36 @@ ObColumnDefault* ObLogJsonTable::get_column_param_default_val(int64_t index)
   return val;
 }
 
+
+// ---------------------------------------------------------------- ObLogFileScan
+
+int ObLogFileScan::get_op_exprs(ObIArray<ObRawExpr *> &all_exprs)
+{
+  int ret = OB_SUCCESS;
+  if (NULL != path_expr_ && OB_FAIL(all_exprs.push_back(path_expr_))) {
+    LOG_WARN("push path expr failed", K(ret));
+  } else if (OB_FAIL(ObLogicalOperator::get_op_exprs(all_exprs))) {
+    LOG_WARN("get op exprs failed", K(ret));
+  }
+  return ret;
+}
+
+int ObLogFileScan::allocate_expr_post(ObAllocExprContext &ctx)
+{
+  int ret = OB_SUCCESS;
+  if (OB_FAIL(ObLogicalOperator::allocate_expr_post(ctx))) {
+    LOG_WARN("base allocate_expr_post failed", K(ret));
+  }
+  return ret;
+}
+
+int ObLogFileScan::get_plan_item_info(PlanText &plan_text, ObSqlPlanItem &plan_item)
+{
+  int ret = OB_SUCCESS;
+  if (OB_FAIL(ObLogicalOperator::get_plan_item_info(plan_text, plan_item))) {
+  }
+  return ret;
+}
+
 } // namespace sql
 }// namespace oceanbase

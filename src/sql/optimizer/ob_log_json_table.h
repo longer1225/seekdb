@@ -79,6 +79,40 @@ private:
   DISALLOW_COPY_AND_ASSIGN(ObLogJsonTable);
 };
 
+// 文件表算子：read_csv('path')。复用 JsonTablePath，但走自己的物理算子，
+// 绕开 JSON_TABLE 的 codegen 路径（那里有未知的 4016）。
+class ObLogFileScan : public ObLogicalOperator
+{
+public:
+  explicit ObLogFileScan(ObLogPlan &plan)
+      : ObLogicalOperator(plan),
+        table_id_(OB_INVALID_ID),
+        path_expr_(nullptr),
+        table_type_(MulModeTableType::OB_FILE_CSV_TABLE_TYPE),
+        cols_def_() {}
+  virtual ~ObLogFileScan() {}
+  void set_table_id(uint64_t id) { table_id_ = id; }
+  uint64_t get_table_id() const { return table_id_; }
+  void set_table_name(const common::ObString &name) { table_name_ = name; }
+  const common::ObString &get_table_name() const { return table_name_; }
+  void set_path_expr(ObRawExpr *e) { path_expr_ = e; }
+  ObRawExpr *get_path_expr() const { return path_expr_; }
+  void set_table_type(MulModeTableType t) { table_type_ = t; }
+  MulModeTableType get_table_type() const { return table_type_; }
+  common::ObIArray<ObJtColBaseInfo *> &get_origin_cols_def() { return cols_def_; }
+  virtual int get_op_exprs(common::ObIArray<ObRawExpr *> &all_exprs) override;
+  virtual int allocate_expr_post(ObAllocExprContext &ctx) override;
+  virtual int get_plan_item_info(PlanText &plan_text,
+                                 ObSqlPlanItem &plan_item) override;
+
+private:
+  uint64_t table_id_;
+  common::ObString table_name_;
+  ObRawExpr *path_expr_;
+  MulModeTableType table_type_;
+  common::ObSEArray<ObJtColBaseInfo *, 4, common::ModulePageAllocator, true> cols_def_;
+};
+
 }
 }
 #endif
