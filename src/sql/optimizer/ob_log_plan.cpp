@@ -2260,32 +2260,6 @@ int ObLogPlan::allocate_json_table_path(JsonTablePath *json_table_path,
   if (OB_ISNULL(json_table_path) || OB_ISNULL(get_stmt()) ||
       OB_ISNULL(table_item = get_stmt()->get_table_item_by_id(json_table_path->table_id_))) {
     ret = OB_ERR_UNEXPECTED;
-  } else if (OB_NOT_NULL(table_item->get_json_table_def())
-             && MulModeTableType::OB_FILE_CSV_TABLE_TYPE
-                  == table_item->get_json_table_def()->table_type_) {
-    ObLogFileScan *fs_op = NULL;
-    if (OB_ISNULL(fs_op = static_cast<ObLogFileScan *>(
-                      get_log_op_factory().allocate(*this, LOG_FILE_SCAN)))) {
-      ret = OB_ALLOCATE_MEMORY_FAILED;
-    } else {
-      fs_op->set_table_id(json_table_path->table_id_);
-      fs_op->set_table_name(table_item->get_table_name());
-      fs_op->set_table_type(MulModeTableType::OB_FILE_CSV_TABLE_TYPE);
-      if (json_table_path->value_exprs_.count() > 0) {
-        fs_op->set_path_expr(json_table_path->value_exprs_.at(0));
-      }
-      if (OB_NOT_NULL(table_item->get_json_table_def())) {
-        if (OB_FAIL(append(fs_op->get_origin_cols_def(),
-                           table_item->get_json_table_def()->all_cols_))) {
-          LOG_WARN("append cols def failed", K(ret));
-        }
-      }
-      if (OB_SUCC(ret)) {
-        out_access_path_op = fs_op;
-        LOG_WARN("FILE_SCAN path allocated", "tid", json_table_path->table_id_,
-                 "cols", fs_op->get_origin_cols_def().count());
-      }
-    }
   } else if (OB_ISNULL(op = static_cast<ObLogJsonTable*>(get_log_op_factory().
                                         allocate(*this, LOG_JSON_TABLE)))) {
     ret = OB_ALLOCATE_MEMORY_FAILED;

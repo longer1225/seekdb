@@ -127,7 +127,6 @@
 #include "sql/engine/basic/ob_values_table_access_op.h"
 #include "sql/engine/expand/ob_expand_vec_op.h"
 #include "sql/engine/table/ob_ddl_block_sample_scan_op.h"
-#include "sql/engine/file_sql/ob_file_scan_op.h"
 
 namespace oceanbase
 {
