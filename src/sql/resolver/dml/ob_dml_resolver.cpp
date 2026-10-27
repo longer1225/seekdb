@@ -41,6 +41,7 @@
 #include "sql/resolver/dcl/ob_dcl_resolver.h"
 #include "sql/resolver/ddl/ob_ddl_resolver.h"
 #include "sql/hybrid_search/ob_hybrid_search_executor.h"
+#include "sql/engine/file_sql/ob_file_scan_utils.h"
 
 namespace oceanbase
 {
@@ -3783,6 +3784,29 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &parse_tree, TableIte
   } else if (OB_ISNULL(stmt) || OB_ISNULL(allocator_)) {
     ret = OB_NOT_INIT;
   }
+  // 文件路径：直接取 parse node 字面量（parse_allocator 内，查询期间有效）
+  ObString file_path;
+  if (OB_SUCC(ret)) {
+    ParseNode *path_node = parse_tree.children_[1];
+    if (OB_ISNULL(path_node) || OB_ISNULL(path_node->str_value_) || path_node->str_len_ <= 0) {
+      ret = OB_INVALID_ARGUMENT;
+      LOG_WARN("file path must be a non-empty string literal", K(ret));
+    } else {
+      file_path.assign_ptr(path_node->str_value_, path_node->str_len_);
+    }
+  }
+
+  // 全量扫描文件推断列（只累积类型，不物化数据）
+  ObFileColumnArray file_columns;
+  if (OB_SUCC(ret)) {
+    ObFileScanOptions options;
+    options.format_ = OB_FILE_FORMAT_CSV;
+    options.has_header_ = true;
+    if (OB_FAIL(ObFileSchemaInferer::infer_csv(file_path, options, *allocator_, file_columns))) {
+      LOG_WARN("infer csv schema failed", K(ret), K(file_path));
+    }
+  }
+
   if (OB_SUCC(ret)) {
     char *buf = static_cast<char *>(allocator_->alloc(sizeof(ObJsonTableDef)));
     if (OB_ISNULL(buf)) {
@@ -3796,7 +3820,7 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &parse_tree, TableIte
   if (OB_SUCC(ret)) {
     ObConstRawExpr *path_expr = NULL;
     ObObj path_val;
-    path_val.set_varchar(ObString::make_string("/tmp/file_sql_placeholder.csv"));
+    path_val.set_varchar(file_path);
     path_val.set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
     if (OB_FAIL(params_.expr_factory_->create_raw_expr(T_VARCHAR, path_expr))) {
       LOG_WARN("create path expr failed", K(ret));
@@ -3812,22 +3836,24 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &parse_tree, TableIte
     }
   }
 
-  // 固定 1 列 c1 BIGINT
-  if (OB_SUCC(ret)) {
+  // 按推断结果建列
+  for (int64_t i = 0; OB_SUCC(ret) && i < file_columns.count(); ++i) {
+    const ObFileColumn &col = file_columns.at(i);
     ObDmlJtColDef *col_def = static_cast<ObDmlJtColDef *>(allocator_->alloc(sizeof(ObDmlJtColDef)));
     if (OB_ISNULL(col_def)) {
       ret = OB_ALLOCATE_MEMORY_FAILED;
     } else {
       col_def = new (col_def) ObDmlJtColDef();
-      col_def->col_base_info_.col_name_ = ObString::make_string("c1");
-      col_def->col_base_info_.id_ = 0;
+      col_def->col_base_info_.col_name_ = col.name_;
+      col_def->col_base_info_.id_ = static_cast<int32_t>(i);
       col_def->col_base_info_.col_type_ = 0;
       ObDataType dt;
-      dt.set_obj_type(ObIntType);
+      dt.set_obj_type(col.type_);
       dt.set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
-      dt.set_length(8);
+      dt.set_length(ObVarcharType == col.type_ ? static_cast<ObLength>(col.type_len_) : 32);
       col_def->col_base_info_.data_type_ = dt;
       if (OB_FAIL(table_def->all_cols_.push_back(&col_def->col_base_info_))) {
+        LOG_WARN("push column failed", K(ret));
       }
     }
   }
@@ -3845,7 +3871,7 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &parse_tree, TableIte
       }
     }
   }
-  LOG_INFO("resolve file table (skeleton)", K(ret));
+  LOG_INFO("resolve file table done", K(ret), K(file_path), "col_cnt", table_def ? table_def->all_cols_.count() : -1);
   return ret;
 }
 

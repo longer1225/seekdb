@@ -206,7 +206,7 @@ int ObFileSqlUtils::unique_column_name(ObString &name,
 
 ObTextFileReader::ObTextFileReader()
   : fp_(NULL), opt_(), buf_(NULL), buf_cap_(0), buf_pos_(0), buf_end_(0),
-    eof_(false), line_no_(0)
+    eof_(false), line_no_(0), read_row_buf_(NULL)
 {
 }
 
@@ -234,6 +234,7 @@ int ObTextFileReader::open(const ObString &path, const ObFileScanOptions &option
         buf_end_ = 0;
         eof_ = false;
         line_no_ = 0;
+        read_row_buf_ = NULL;
       }
     }
   }
@@ -254,6 +255,10 @@ void ObTextFileReader::close()
   buf_pos_ = 0;
   buf_end_ = 0;
   eof_ = false;
+  if (NULL != read_row_buf_) {
+    free(read_row_buf_);
+    read_row_buf_ = NULL;
+  }
 }
 
 int ObTextFileReader::fill_buffer()
