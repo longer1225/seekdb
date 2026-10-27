@@ -311,7 +311,34 @@ static int ob_strnncoll_utf8mb4(const ObCharsetInfo *cs,
   const unsigned char *se = src + srclen;
   const unsigned char *te = dst + dstlen;
   ObUnicaseInfo *uni_plane = cs->caseinfo;
+  /* ASCII_FASTPATH_UTF8MB4: 单字节 ASCII 的 wc 就是字节本身、排序权重在
+   * uni_plane->page[0]，无需 ob_mb_wc_utf8mb4() 解码与二级查表。 */
+  const bool lower_sort = (cs->state & OB_CS_LOWER_SORT) != 0;
+  const ObUnicaseInfoChar *ascii_page = NULL;
+  if (NULL != uni_plane && uni_plane->maxchar >= 0x7f) {
+    ascii_page = uni_plane->page[0];
+  }
   while ( src < se && dst < te ) {
+    if (*src < 0x80 && *dst < 0x80) {
+      if (*src == *dst) {
+        /* 同一个 ASCII 字节：排序权重必然相同 */
+        src++;
+        dst++;
+        continue;
+      }
+      if (NULL != ascii_page) {
+        const ob_wc_t src_sort = lower_sort ? ascii_page[*src].tolower
+                                           : ascii_page[*src].sort;
+        const ob_wc_t dst_sort = lower_sort ? ascii_page[*dst].tolower
+                                           : ascii_page[*dst].sort;
+        if (src_sort != dst_sort) {
+          return src_sort > dst_sort ? 1 : -1;
+        }
+        src++;
+        dst++;
+        continue;
+      }
+    }
     int s_res = ob_mb_wc_utf8mb4(cs, &src_wc, src, se);
     int t_res = ob_mb_wc_utf8mb4(cs, &dst_wc, dst, te);
     if ( s_res <= 0 || t_res <= 0 ) {
@@ -381,7 +408,32 @@ static int ob_strnncollsp_utf8mb4(const ObCharsetInfo *cs,
   ob_wc_t src_wc = 0, dst_wc = 0;
   const unsigned char *se= src + srclen, *te= dst + dstlen;
   ObUnicaseInfo *uni_plane= cs->caseinfo;
+  /* ASCII_FASTPATH_UTF8MB4: 与 ob_strnncoll_utf8mb4 相同的快路径 */
+  const bool lower_sort = (cs->state & OB_CS_LOWER_SORT) != 0;
+  const ObUnicaseInfoChar *ascii_page = NULL;
+  if (NULL != uni_plane && uni_plane->maxchar >= 0x7f) {
+    ascii_page = uni_plane->page[0];
+  }
   while ( src < se && dst < te ) {
+    if (*src < 0x80 && *dst < 0x80) {
+      if (*src == *dst) {
+        src++;
+        dst++;
+        continue;
+      }
+      if (NULL != ascii_page) {
+        const ob_wc_t src_sort = lower_sort ? ascii_page[*src].tolower
+                                           : ascii_page[*src].sort;
+        const ob_wc_t dst_sort = lower_sort ? ascii_page[*dst].tolower
+                                           : ascii_page[*dst].sort;
+        if (src_sort != dst_sort) {
+          return src_sort > dst_sort ? 1 : -1;
+        }
+        src++;
+        dst++;
+        continue;
+      }
+    }
     int s_res= ob_mb_wc_utf8mb4(cs, &src_wc, src, se);
     int t_res= ob_mb_wc_utf8mb4(cs, &dst_wc, dst, te);
     if ( s_res <= 0 || t_res <= 0 ) {
