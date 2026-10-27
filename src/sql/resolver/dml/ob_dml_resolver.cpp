@@ -3778,6 +3778,7 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &parse_tree, TableIte
   ObDMLStmt *stmt = get_stmt();
   TableItem *item = NULL;
   ObJsonTableDef *table_def = NULL;
+  ObDmlJtColDef *file_root_col = NULL;   // 文件表的 root 列（树根）
 
   if (T_FILE_TABLE_EXPRESSION != parse_tree.type_ || 3 != parse_tree.num_child_) {
     ret = OB_ERR_UNEXPECTED;
@@ -3848,7 +3849,10 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &parse_tree, TableIte
       root_col_def->col_base_info_.col_type_ = NESTED_COL_TYPE;
       root_col_def->col_base_info_.parent_id_ = -1;
       root_col_def->col_base_info_.id_ = 0;
-      if (OB_FAIL(table_def->all_cols_.push_back(&root_col_def->col_base_info_))) {
+      file_root_col = root_col_def;
+      if (OB_FAIL(json_table_infos_.push_back(root_col_def))) {
+        LOG_WARN("push json table infos failed", K(ret));
+      } else if (OB_FAIL(table_def->all_cols_.push_back(&root_col_def->col_base_info_))) {
         LOG_WARN("push root column failed", K(ret));
       }
     }
@@ -3865,6 +3869,9 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &parse_tree, TableIte
       item->table_id_ = generate_table_id();
       item->type_ = TableItem::JSON_TABLE;
       item->json_table_def_ = table_def;
+      if (NULL != file_root_col) {
+        file_root_col->table_id_ = item->table_id_;
+      }
       tbl_item = item;
       if (OB_FAIL(stmt->add_table_item(session_info_, item))) {
         LOG_WARN("add table item failed", K(ret));
@@ -3884,7 +3891,9 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &parse_tree, TableIte
       col_def->col_base_info_.col_type_ = COL_TYPE_UNNEST;
       col_def->col_base_info_.parent_id_ = 0;
       col_def->col_base_info_.id_ = static_cast<int32_t>(i + 1);
-      col_def->col_base_info_.output_column_idx_ = i + 1;
+      col_def->col_base_info_.output_column_idx_ = i;
+      // file_sql: column path —— 原生 JSON_TABLE 每列都有 path_，缺了会 4016
+      col_def->col_base_info_.path_ = ObString::make_string("$");
       ObDataType dt;
       dt.set_obj_type(col.type_);
       dt.set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
@@ -3908,6 +3917,11 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &parse_tree, TableIte
         LOG_WARN("register output column failed", K(tmp_ret), K(safe_name));
       } else if (OB_FAIL(table_def->all_cols_.push_back(&col_def->col_base_info_))) {
         LOG_WARN("push column failed", K(ret));
+      } else if (NULL != file_root_col) {
+        col_def->table_id_ = item->table_id_;
+        if (OB_FAIL(file_root_col->regular_cols_.push_back(col_def))) {
+          LOG_WARN("attach column to root failed", K(ret));
+        }
       }
     }
   }
@@ -3982,7 +3996,7 @@ int ObDMLResolver::resolve_json_table_item(const ParseNode &parse_tree, TableIte
       table_def = static_cast<ObJsonTableDef*>(new (table_buf) ObJsonTableDef());
       if (OB_FAIL(table_def->doc_exprs_.push_back(json_doc_expr))) {
       } else if (T_JSON_TABLE_EXPRESSION == parse_tree.type_) {
-        table_def->table_type_ = MulModeTableType::OB_ORA_JSON_TABLE_TYPE;
+        table_def->table_type_ = MulModeTableType::OB_FILE_CSV_TABLE_TYPE;
       } else {
         ret = OB_ERR_UNEXPECTED;
       }
@@ -7007,7 +7021,7 @@ int ObDMLResolver::json_table_make_json_path(const ParseNode &parse_tree,
       }
     }
   } else {
-    if (table_type == MulModeTableType::OB_ORA_JSON_TABLE_TYPE) {
+    if (table_type == MulModeTableType::OB_FILE_CSV_TABLE_TYPE) {
       char* str_buf = static_cast<char*>(allocator->alloc(parse_tree.text_len_ + 3));
       if (OB_ISNULL(str_buf)) {
         ret = OB_ALLOCATE_MEMORY_FAILED;
@@ -7359,7 +7373,7 @@ int ObDMLResolver::resolve_json_table_regular_column(const ParseNode &parse_tree
           col_def->col_base_info_.output_column_idx_ = cur_column_id++;
 
           if (OB_FAIL(ret)) {
-          } else if (table_def->table_type_ == MulModeTableType::OB_ORA_JSON_TABLE_TYPE
+          } else if (table_def->table_type_ == MulModeTableType::OB_FILE_CSV_TABLE_TYPE
                       && OB_FAIL(check_json_table_column_constrain(col_def))) {
           } else if (col_type == COL_TYPE_VALUE) {
             const ParseNode* on_err_node = parse_tree.children_[4];
