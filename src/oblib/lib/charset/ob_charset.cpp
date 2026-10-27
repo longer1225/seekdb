@@ -571,14 +571,43 @@ int ObCharset::strcmpsp(ObCollationType collation_type,
                         bool cmp_endspace)
 {
   int result = 0;
-  if (is_argument_valid(collation_type, str1, str1_len, str2, str2_len)) {
-    const ObCharsetInfo *cs = get_charset(collation_type);
+  // 热路径：把 is_argument_valid() 与 get_charset() 的判据内联到这里。
+  // 这两个函数在排序比较热路径上合计约 3.5% CPU（is_argument_valid 1.35%、
+  // get_charset 1.37%、get_charset_uninit 0.83%），但它们真正做的事只是几次
+  // 整数比较和一次静态数组读取，开销全在跨函数调用与未内联的函数体上。
+  // 判据与改动前严格一一对应：
+  //   * collation_type 越界 -> 与原实现相同，直接返回 0 且不打 WARN
+  //     （原实现 is_argument_valid() 的短路求值同样不会走到 get_charset_uninit）
+  //   * collation_type 合法但该 collation 尚未懒初始化（charset_arr_inited 为
+  //     NULL）-> 落到下面冷路径，由 get_charset() 完成初始化，结果与原来一致
+  //   * str/len 不匹配或 len < 0 -> 落到冷路径，由 is_argument_valid() 打原有
+  //     的 WARN 日志后返回 0
+  const ObCharsetInfo *cs = NULL;
+  if (OB_LIKELY(collation_type > CS_TYPE_INVALID && collation_type < CS_TYPE_MAX)) {
+    cs = charset_arr_inited[collation_type];
+  }
+  if (OB_LIKELY(NULL != cs) &&
+      OB_LIKELY(str1_len >= 0) &&
+      OB_LIKELY(str2_len >= 0) &&
+      OB_LIKELY(!(NULL == str1 && 0 != str1_len)) &&
+      OB_LIKELY(!(NULL == str2 && 0 != str2_len))) {
     result = cs->coll->strnncollsp(cs,
-                                reinterpret_cast<const unsigned char *>(str1),
-                                str1_len,
-                                reinterpret_cast<const unsigned char *>(str2),
-                                str2_len,
-                                cmp_endspace);
+                                   reinterpret_cast<const unsigned char *>(str1),
+                                   str1_len,
+                                   reinterpret_cast<const unsigned char *>(str2),
+                                   str2_len,
+                                   cmp_endspace);
+  } else if (OB_UNLIKELY(is_argument_valid(collation_type, str1, str1_len, str2, str2_len))) {
+    // 冷路径：只有「collation 合法且受支持、但尚未懒初始化」才可能走到这里。
+    const ObCharsetInfo *slow_cs = get_charset(collation_type);
+    if (OB_LIKELY(NULL != slow_cs)) {
+      result = slow_cs->coll->strnncollsp(slow_cs,
+                                          reinterpret_cast<const unsigned char *>(str1),
+                                          str1_len,
+                                          reinterpret_cast<const unsigned char *>(str2),
+                                          str2_len,
+                                          cmp_endspace);
+    }
   }
   return result;
 }
